@@ -31,6 +31,7 @@ import org.json.JSONObject;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
+import android.net.Uri;
 import android.os.Environment;
 import android.util.Base64;
 import android.util.Log;
@@ -100,7 +101,8 @@ public class ImageResizePlugin extends CordovaPlugin {
             } else {
                 URI uri = new URI(imageData);
                 File imageFile = new File(uri);
-                bmp = BitmapFactory.decodeFile(imageFile.getAbsolutePath(), options);
+                System.out.println("File path: " + imageFile.getAbsolutePath());
+                bmp = BitmapFactory.decodeFile(imageFile.getAbsolutePath());
             }
             return bmp;
         }
@@ -108,11 +110,9 @@ public class ImageResizePlugin extends CordovaPlugin {
         protected void storeImage(JSONObject params, String format, Bitmap bmp, CallbackContext callbackContext) throws JSONException, IOException, URISyntaxException {
             int quality = params.getInt("quality");
             String filename = params.getString("filename");
-            URI folderUri = new URI(params.getString("directory"));
-            URI pictureUri = new URI(params.getString("directory") + "/" + filename);
-            File folder = new File(folderUri);
-            folder.mkdirs();
-            File file = new File(pictureUri);
+            // URI pictureUri = new URI(System.getProperty("java.io.tmpdir") + "/" + filename);
+            String filePath = System.getProperty("java.io.tmpdir") + "/" + filename;
+            File file = new File(filePath);
             OutputStream outStream = new FileOutputStream(file);
             if (format.equals(FORMAT_PNG)) {
                 bmp.compress(Bitmap.CompressFormat.PNG, quality,
@@ -124,7 +124,7 @@ public class ImageResizePlugin extends CordovaPlugin {
             outStream.flush();
             outStream.close();
             JSONObject res = new JSONObject();
-            res.put("filename", filename);
+            res.put("filePath", Uri.fromFile(file).toString());
             res.put("width", bmp.getWidth());
             res.put("height", bmp.getHeight());
             callbackContext.success(res);
@@ -193,15 +193,13 @@ public class ImageResizePlugin extends CordovaPlugin {
         public void run() {
             try {
                 BitmapFactory.Options options = new BitmapFactory.Options();
+                options.inSampleSize = 1;
                 options.inJustDecodeBounds = true;
-                getBitmap(imageData, imageDataType, options);
-                float[] sizes = calculateFactors(params, options.outWidth, options.outHeight);
-                float reqWidth = options.outWidth * sizes[0];
-                float reqHeight = options.outHeight * sizes[1];
-                int inSampleSize = calculateInSampleSize(options, (int)reqWidth, (int)reqHeight);
+                URI uri = new URI(imageData);
+                File imageFile = new File(uri);
 
-                options = new BitmapFactory.Options();
-                options.inSampleSize = inSampleSize;
+                BitmapFactory.decodeFile(imageFile.getAbsolutePath(), options);
+
                 Bitmap bmp = getBitmap(imageData, imageDataType, options);
 
 
@@ -209,8 +207,9 @@ public class ImageResizePlugin extends CordovaPlugin {
                     throw new IOException("The image file could not be opened.");
                 }
 
-                sizes = calculateFactors(params, options.outWidth, options.outHeight);
-                bmp = getResizedBitmap(bmp, sizes[0], sizes[1]);
+                float reqDimension = calculateScale(params, options.outWidth, options.outHeight);
+
+                bmp = getResizedBitmap(bmp, reqDimension);
 
                 if (params.getInt("storeImage") > 0) {
                     storeImage(params, format, bmp, callbackContext);
@@ -240,19 +239,20 @@ public class ImageResizePlugin extends CordovaPlugin {
             } catch (URISyntaxException e) {
                 Log.d("PLUGIN", e.getMessage());
                 callbackContext.error(e.getMessage());
+            } catch(Exception e) {
+                e.printStackTrace();
             }
         }
 
-        private Bitmap getResizedBitmap(Bitmap bm, float widthFactor, float heightFactor) {
+        private Bitmap getResizedBitmap(Bitmap bm, float factor) {
             int width = bm.getWidth();
             int height = bm.getHeight();
             // create a matrix for the manipulation
             Matrix matrix = new Matrix();
             // resize the bit map
-            matrix.postScale(widthFactor, heightFactor);
+            matrix.postScale(factor, factor);
             // recreate the new Bitmap
-            Bitmap resizedBitmap = Bitmap.createBitmap(bm, 0, 0, width, height,
-                    matrix, false);
+            Bitmap resizedBitmap = Bitmap.createBitmap(bm, 0, 0, width, height, matrix, false);
             return resizedBitmap;
         }
 
@@ -274,6 +274,36 @@ public class ImageResizePlugin extends CordovaPlugin {
             }
 
             return inSampleSize;
+        }
+
+        private float calculateScale(JSONObject params,int width, int height) throws JSONException {
+            float desiredWidth = (float)params.getDouble("width");
+            float desiredHeight = (float)params.getDouble("height");
+
+            float widthScale = 1.0f;
+            float heightScale = 1.0f;
+            float scale = 1.0f;
+            if (desiredWidth > 0 || desiredHeight > 0) {
+                if (desiredHeight == 0 && desiredWidth < width) {
+                    scale = (float)desiredWidth/width;
+                } else if (desiredWidth == 0 && desiredHeight < height) {
+                    scale = (float)desiredHeight/height;
+                } else {
+                    if (desiredWidth > 0 && desiredWidth < width) {
+                        widthScale = (float)desiredWidth/width;
+                    }
+                    if (desiredHeight > 0 && desiredHeight < height) {
+                        heightScale = (float)desiredHeight/height;
+                    }
+                    if (widthScale < heightScale) {
+                        scale = widthScale;
+                    } else {
+                        scale = heightScale;
+                    }
+                }
+            }
+
+            return scale;
         }
 
         private float[] calculateFactors(JSONObject params, int width, int height) throws JSONException {

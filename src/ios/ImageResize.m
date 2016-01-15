@@ -21,76 +21,38 @@
 @synthesize callbackID;
 
 - (void) resizeImage:(CDVInvokedUrlCommand*)command {
-    NSDictionary *options = [command.arguments objectAtIndex:0];
+    NSMutableDictionary *options = [command.arguments objectAtIndex:0];
 
     CGFloat width = [[options objectForKey:@"width"] floatValue];
     CGFloat height = [[options objectForKey:@"height"] floatValue];
     NSInteger quality = [[options objectForKey:@"quality"] integerValue];
     NSString *format =  [options objectForKey:@"format"];
-    NSString *resizeType = [options objectForKey:@"resizeType"];
     bool storeImage = [[options objectForKey:@"storeImage"] boolValue];
     NSString *filename = [options objectForKey:@"filename"];
-    bool accountForPixelDensity = [[options objectForKey:@"pixelDensity"] boolValue];
-
+    
+    NSString* docsPath = [NSTemporaryDirectory()stringByStandardizingPath];
+    
     //Load the image
     UIImage *img = [self getImageUsingOptions:options];
+    
+    CGSize targetSize = CGSizeMake(width, height);
 
-    UIImage *scaledImage = nil;
-    CGFloat newHeight;
-    CGFloat newWidth;
-    if ([resizeType isEqualToString:@"factorResize"] == YES) {
-        newWidth = img.size.width * width;
-        newHeight = img.size.height * height;
-    } else if ([resizeType isEqualToString:@"minPixelResize"] == YES) {
-        CGFloat widthFactor = width/img.size.width;
-        CGFloat heightFactor = height/img.size.height;
-        CGFloat scaleFactor = 0.0;
-        if (widthFactor > heightFactor && widthFactor <= 1.0) {
-            scaleFactor = widthFactor;
-        } else if (heightFactor <= 1.0) {
-            scaleFactor = heightFactor;
-        } else {
-            scaleFactor = 1.0;
-        }
-        newWidth = img.size.width * scaleFactor;
-        newHeight = img.size.height * scaleFactor;
-    } else {
-        CGFloat widthFactor = width / img.size.width;
-        CGFloat heightFactor = height / img.size.height;
-        CGFloat scaleFactor = 0.0;
-        if (widthFactor == 0.0) {
-               scaleFactor = heightFactor;
-        } else if (heightFactor == 0.0) {
-               scaleFactor = widthFactor;
-        } else if (widthFactor > heightFactor) {
-            scaleFactor = heightFactor; // scale to fit height
-        } else {
-            scaleFactor = widthFactor; // scale to fit width
-        }
-        newWidth = img.size.width * scaleFactor;
-        newHeight = img.size.height * scaleFactor;
-    }
-
-    //Double size for retina if option set to true
-    if (accountForPixelDensity && [[UIScreen mainScreen] respondsToSelector:@selector(scale)] && [[UIScreen mainScreen] scale] == 2.0) {
-        if (img.size.width > newWidth * 2 && img.size.height > newHeight * 2) {
-            newWidth = newWidth * 2;
-            newHeight = newHeight * 2;
-        } else {
-            newWidth = img.size.width;
-            newHeight = img.size.height;
-        }
-    }
-
-    scaledImage = [img scaleToSize:CGSizeMake(newWidth, newHeight)];
-    NSNumber *newWidthObj = [[NSNumber alloc] initWithFloat:newWidth];
-    NSNumber *newHeightObj = [[NSNumber alloc] initWithFloat:newHeight];
+    UIImage* scaledImage = [self imageByScalingNotCroppingForSize:img toSize:targetSize];
+    
+//    scaledImage = [img scaleToSize:CGSizeMake(newWidth, newHeight)];
+    NSNumber *newWidthObj = [[NSNumber alloc] initWithFloat:scaledImage.size.width];
+    NSNumber *newHeightObj = [[NSNumber alloc] initWithFloat:scaledImage.size.height];
 
     CDVPluginResult* pluginResult = nil;
     if (storeImage) {
-        bool written = [self saveImage:scaledImage withOptions:options];
+        
+        NSString* fullFilePath = [NSString stringWithFormat:@"%@/%@.%@", docsPath, filename, format];
+        [options setObject:fullFilePath forKey:@"fullFilePath"];
+        bool written = [self writeImage:scaledImage withOptions:options];
         if (written) {
-            NSDictionary* result = [NSDictionary dictionaryWithObjects:[NSArray arrayWithObjects:filename, newWidthObj, newHeightObj, nil] forKeys:[NSArray arrayWithObjects: @"filename", @"width", @"height", nil]];
+            
+            NSDictionary* result = [NSDictionary dictionaryWithObjects:[NSArray arrayWithObjects:[[NSURL fileURLWithPath:fullFilePath] absoluteString], newWidthObj, newHeightObj, nil] forKeys:[NSArray arrayWithObjects: @"filePath", @"width", @"height", nil]];
+//            NSDictionary* result = [NSDictionary dictionaryWithObjects:[NSArray arrayWithObjects:@"encodedString", newWidthObj, newHeightObj, nil] forKeys:[NSArray arrayWithObjects: @"imageData", @"width", @"height", nil]];
             pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:result];
         } else {
             pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
@@ -114,6 +76,50 @@
     }
 
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+
+- (UIImage*)imageByScalingNotCroppingForSize:(UIImage*)anImage toSize:(CGSize)frameSize
+{
+    UIImage* sourceImage = anImage;
+    UIImage* newImage = nil;
+    CGSize imageSize = sourceImage.size;
+    CGFloat width = imageSize.width;
+    CGFloat height = imageSize.height;
+    CGFloat targetWidth = frameSize.width;
+    CGFloat targetHeight = frameSize.height;
+    CGFloat scaleFactor = 0.0;
+    CGSize scaledSize = frameSize;
+    
+    if (CGSizeEqualToSize(imageSize, frameSize) == NO) {
+        CGFloat widthFactor = targetWidth / width;
+        CGFloat heightFactor = targetHeight / height;
+        
+        // opposite comparison to imageByScalingAndCroppingForSize in order to contain the image within the given bounds
+        if (widthFactor == 0.0) {
+            scaleFactor = heightFactor;
+        } else if (heightFactor == 0.0) {
+            scaleFactor = widthFactor;
+        } else if (widthFactor > heightFactor) {
+            scaleFactor = heightFactor; // scale to fit height
+        } else {
+            scaleFactor = widthFactor; // scale to fit width
+        }
+        scaledSize = CGSizeMake(floor(width * scaleFactor), floor(height * scaleFactor));
+    }
+    
+    UIGraphicsBeginImageContext(scaledSize); // this will resize
+    
+    [sourceImage drawInRect:CGRectMake(0, 0, scaledSize.width, scaledSize.height)];
+    
+    newImage = UIGraphicsGetImageFromCurrentImageContext();
+    if (newImage == nil) {
+        NSLog(@"could not scale image");
+    }
+    
+    // pop the context to get back to the default
+    UIGraphicsEndImageContext();
+    return newImage;
 }
 
 - (UIImage*) getImageUsingOptions:(NSDictionary*)options {
@@ -141,6 +147,20 @@
     CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:dic];
 
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+// Newly implemented method. saveImage is not working
+- (BOOL) writeImage:(UIImage *)img withOptions:(NSDictionary *) options {
+    NSString *fullFilePath =  [options objectForKey:@"fullFilePath"];
+    NSInteger quality = [[options objectForKey:@"quality"] integerValue];
+    NSData *data = UIImageJPEGRepresentation(img, quality/100.0f);
+    NSError* err = nil;
+    if (![data writeToFile:fullFilePath options:NSAtomicWrite error:&err]) {
+        return NO;
+    } else {
+        return YES;
+    }
+    
 }
 
 - (void) storeImage:(CDVInvokedUrlCommand*)command {
