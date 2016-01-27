@@ -31,6 +31,7 @@ import org.json.JSONObject;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.net.Uri;
 import android.os.Environment;
 import android.util.Base64;
@@ -191,6 +192,8 @@ public class ImageResizePlugin extends CordovaPlugin {
 
         @Override
         public void run() {
+            Bitmap bmp = null;
+            Bitmap resizedBmp = null;
             try {
                 BitmapFactory.Options options = new BitmapFactory.Options();
                 options.inSampleSize = 1;
@@ -200,7 +203,7 @@ public class ImageResizePlugin extends CordovaPlugin {
 
                 BitmapFactory.decodeFile(imageFile.getAbsolutePath(), options);
 
-                Bitmap bmp = getBitmap(imageData, imageDataType, options);
+                bmp = getBitmap(imageData, imageDataType, options);
 
 
                 if (bmp == null) {
@@ -209,25 +212,31 @@ public class ImageResizePlugin extends CordovaPlugin {
 
                 float reqDimension = calculateScale(params, options.outWidth, options.outHeight);
 
-                bmp = getResizedBitmap(bmp, reqDimension);
+                ExifInterface exif = new ExifInterface(imageFile.getAbsolutePath());
+                int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+
+//                resizedBmp = getResizedBitmap(imageFile.getAbsolutePath(), options.outWidth, reqDimension, orientation);
+//                resizedBmp = getResizedBitmap(imageData, imageDataType, options, reqDimension, orientation);
+
+                resizedBmp = getResizedBitmap(bmp, reqDimension, orientation);
 
                 if (params.getInt("storeImage") > 0) {
-                    storeImage(params, format, bmp, callbackContext);
+                    storeImage(params, format, resizedBmp, callbackContext);
                 } else {
                     int quality = params.getInt("quality");
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    if (format.equals(FORMAT_PNG)) {
-                        bmp.compress(Bitmap.CompressFormat.PNG, quality, baos);
+                    if (FORMAT_PNG.equals(format)) {
+                        resizedBmp.compress(Bitmap.CompressFormat.PNG, quality, baos);
                     } else {
-                        bmp.compress(Bitmap.CompressFormat.JPEG, quality, baos);
+                        resizedBmp.compress(Bitmap.CompressFormat.JPEG, quality, baos);
                     }
                     byte[] b = baos.toByteArray();
                     String returnString = Base64.encodeToString(b, Base64.DEFAULT);
                     // return object
                     JSONObject res = new JSONObject();
                     res.put("imageData", returnString);
-                    res.put("width", bmp.getWidth());
-                    res.put("height", bmp.getHeight());
+                    res.put("width", resizedBmp.getWidth());
+                    res.put("height", resizedBmp.getHeight());
                     callbackContext.success(res);
                 }
             } catch (JSONException e) {
@@ -241,18 +250,108 @@ public class ImageResizePlugin extends CordovaPlugin {
                 callbackContext.error(e.getMessage());
             } catch(Exception e) {
                 e.printStackTrace();
+            } finally {
+                if(resizedBmp != null) {
+                    resizedBmp.recycle();
+                }
             }
         }
 
-        private Bitmap getResizedBitmap(Bitmap bm, float factor) {
+
+        private Bitmap getResizedBitmapF(String filePath, int width, float factor, int orientation) {
+            int rotate = 0;
+            switch (orientation) {
+                case ExifInterface.ORIENTATION_ROTATE_270:
+                    rotate = 270;
+                    break;
+                case ExifInterface.ORIENTATION_ROTATE_180:
+                    rotate = 180;
+                    break;
+                case ExifInterface.ORIENTATION_ROTATE_90:
+                    rotate = 90;
+                    break;
+            }
+
+            int scaleWidth = (int)(factor * width);
+            BitmapFactory.Options mBitmapOptions = new BitmapFactory.Options();
+//            mBitmapOptions.inSampleSize = 4;
+            mBitmapOptions.inSampleSize = 1;
+            mBitmapOptions.inScaled = true;
+            mBitmapOptions.inDensity = width;
+//            mBitmapOptions.inTargetDensity = scaleWidth  * mBitmapOptions.inSampleSize;
+            mBitmapOptions.inTargetDensity = scaleWidth;
+
+
+            Bitmap resizedBitmap =  BitmapFactory.decodeFile(filePath, mBitmapOptions);
+//            bm.recycle();
+            return resizedBitmap;
+        }
+
+        private Bitmap getResizedBitmapNGOOD(String imageData, String imageDataType, BitmapFactory.Options options, float factor, int orientation) {
+            int rotate = 0;
+            switch (orientation) {
+                case ExifInterface.ORIENTATION_ROTATE_270:
+                    rotate = 270;
+                    break;
+                case ExifInterface.ORIENTATION_ROTATE_180:
+                    rotate = 180;
+                    break;
+                case ExifInterface.ORIENTATION_ROTATE_90:
+                    rotate = 90;
+                    break;
+            }
+
+            // create a matrix for the manipulation
+            Matrix matrix = new Matrix();
+            int scaleWidth = (int)(factor * options.outWidth);
+            int scaleHeight = (int)(factor * options.outHeight);
+
+            // resize the bit map
+            matrix.postScale(factor, factor);
+            matrix.setRotate(rotate);
+
+            Bitmap bm = null;
+            Bitmap resizedBitmap = null;
+            try {
+                bm = getBitmap(imageData, imageDataType, options);
+//                Bitmap resizedBitmap = Bitmap.createScaledBitmap(bm, scaleWidth, scaleHeight, false);
+                resizedBitmap = Bitmap.createBitmap(bm, 0, 0, scaleWidth, scaleHeight, matrix, true);
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (URISyntaxException e) {
+                e.printStackTrace();
+            } finally {
+//                bm.recycle();
+                return resizedBitmap;
+            }
+
+        }
+
+        private Bitmap getResizedBitmap(Bitmap bm, float factor, int orientation) {
+            int rotate = 0;
+            switch (orientation) {
+                case ExifInterface.ORIENTATION_ROTATE_270:
+                    rotate = 270;
+                    break;
+                case ExifInterface.ORIENTATION_ROTATE_180:
+                    rotate = 180;
+                    break;
+                case ExifInterface.ORIENTATION_ROTATE_90:
+                    rotate = 90;
+                    break;
+            }
+
             int width = bm.getWidth();
             int height = bm.getHeight();
             // create a matrix for the manipulation
             Matrix matrix = new Matrix();
+            int scaleWidth = (int)(factor * width);
+            int scaleHeight = (int)(factor * height);
             // resize the bit map
             matrix.postScale(factor, factor);
+            matrix.setRotate(rotate);
             // recreate the new Bitmap
-            Bitmap resizedBitmap = Bitmap.createBitmap(bm, 0, 0, width, height, matrix, false);
+            Bitmap resizedBitmap = Bitmap.createBitmap(bm, 0, 0, scaleWidth, scaleHeight, matrix, true);
             return resizedBitmap;
         }
 
