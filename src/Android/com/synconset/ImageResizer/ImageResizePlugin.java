@@ -110,7 +110,7 @@ public class ImageResizePlugin extends CordovaPlugin {
         protected void storeImage(JSONObject params, String format, Bitmap bmp, CallbackContext callbackContext) throws JSONException, IOException, URISyntaxException {
             int quality = params.getInt("quality");
             String filename = params.getString("filename");
-            String filePath = System.getProperty("java.io.tmpdir") + "/" + filename;
+            String filePath = System.getProperty("java.io.tmpdir") + "/" + filename + ".jpg";
             File file = new File(filePath);
             OutputStream outStream = new FileOutputStream(file);
             if (format.equals(FORMAT_PNG)) {
