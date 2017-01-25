@@ -40,9 +40,11 @@
         
         NSString *imageData = [options objectForKey:@"data"];
         NSString *imageDataType = [options objectForKey:@"imageDataType"];
-        NSDictionary *metaDataDic = NULL;
+        NSMutableDictionary *metaDataDic = NULL;
         if([imageDataType isEqualToString:@"base64Image"]==NO) {
-            metaDataDic = [self getExifDataFromImageUrl:[NSURL URLWithString:imageData] ];
+            NSDictionary* dic = [self getExifDataFromImageUrl:[NSURL URLWithString:imageData] ];
+            metaDataDic = (dic != NULL) ? [NSMutableDictionary dictionaryWithDictionary:dic] : NULL;
+            [metaDataDic setValue:[NSNumber numberWithInt:1] forKey:@"Orientation"];
         }else{
             NSLog(@"Warning meta data is only available with Camera Roll Image");
         }
@@ -59,7 +61,9 @@
             
             NSString* fullFilePath = [NSString stringWithFormat:@"%@/%@.%@", docsPath, filename, format];
             [options setObject:fullFilePath forKey:@"fullFilePath"];
-            [options setObject:metaDataDic forKey:@"meta"];
+            if(metaDataDic != NULL){
+                [options setObject:metaDataDic forKey:@"meta"];
+            }
             bool written = [self writeImage:scaledImage withOptions:options];
             if (written) {
                 
