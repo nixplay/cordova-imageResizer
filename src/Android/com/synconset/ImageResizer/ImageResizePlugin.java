@@ -21,6 +21,7 @@ import java.io.OutputStream;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.List;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -36,7 +37,9 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.DisplayMetrics;
 import android.net.Uri;
-import android.media.ExifInterface;
+
+import it.sephiroth.android.library.exif2.ExifInterface;
+import it.sephiroth.android.library.exif2.ExifTag;
 
 public class ImageResizePlugin extends CordovaPlugin {
     public static final String IMAGE_DATA_TYPE_BASE64 = "base64Image";
@@ -209,8 +212,12 @@ public class ImageResizePlugin extends CordovaPlugin {
                 }
 
                 sizes = calculateFactors(params, options.outWidth, options.outHeight);
-                ExifInterface exif = new ExifInterface(imageFile.getAbsolutePath());
-                int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+
+                ExifInterface exif = new ExifInterface();
+                exif.readExif( imageFile.getAbsolutePath() , ExifInterface.Options.OPTION_ALL );
+                ExifTag orientationTag = exif.getTag(ExifInterface.TAG_ORIENTATION, ExifInterface.TAG_ORIENTATION);
+                short orientation =  (Short) orientationTag.getValue();
+                Log.d("Exif",  exif.toString());
                 bmp = getResizedBitmap(bmp, sizes[0], sizes[1], orientation);
 
                 if (params.getInt("storeImage") > 0) {
@@ -244,18 +251,25 @@ public class ImageResizePlugin extends CordovaPlugin {
             }
         }
 
-        private Bitmap getResizedBitmap(Bitmap bm, float widthFactor, float heightFactor, int orientation) {
+        private Bitmap getResizedBitmap(Bitmap bm, float widthFactor, float heightFactor, short orientation) {
             int width = bm.getWidth();
             int height = bm.getHeight();
             int rotate = 0;
+
+            /**
+
+             * BOTTOM_LEFT 3 180
+             * RIGHT_TOP 6 90
+             * RIGHT_BOTTOM 8 270
+             */
             switch (orientation) {
-                case ExifInterface.ORIENTATION_ROTATE_270:
+                case ExifInterface.Orientation.RIGHT_BOTTOM:
                     rotate = 270;
                     break;
-                case ExifInterface.ORIENTATION_ROTATE_180:
+                case ExifInterface.Orientation.BOTTOM_LEFT:
                     rotate = 180;
                     break;
-                case ExifInterface.ORIENTATION_ROTATE_90:
+                case ExifInterface.Orientation.RIGHT_TOP:
                     rotate = 90;
                     break;
             }
