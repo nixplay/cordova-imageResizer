@@ -131,6 +131,19 @@ public class ImageResizePlugin extends CordovaPlugin {
             res.put("height", bmp.getHeight());
             callbackContext.success(res);
         }
+        //James Kong 2017-01-27
+        protected void storeImageWithExif(JSONObject params, String format, Bitmap bmp, ExifInterface exif, CallbackContext callbackContext) throws JSONException, IOException, URISyntaxException {
+            int quality = params.getInt("quality");
+            String filename = params.getString("filename");
+            String filePath = System.getProperty("java.io.tmpdir") + "/" + filename + ".jpg";
+            File file = new File(filePath);
+            exif.writeExif(bmp,filePath,quality);
+            JSONObject res = new JSONObject();
+            res.put("filePath", Uri.fromFile(file).toString());
+            res.put("width", bmp.getWidth());
+            res.put("height", bmp.getHeight());
+            callbackContext.success(res);
+        }
     }
 
     private class GetImageSize extends ImageTools implements Runnable {
@@ -214,14 +227,27 @@ public class ImageResizePlugin extends CordovaPlugin {
                 sizes = calculateFactors(params, options.outWidth, options.outHeight);
 
                 ExifInterface exif = new ExifInterface();
-                exif.readExif( imageFile.getAbsolutePath() , ExifInterface.Options.OPTION_ALL );
-                ExifTag orientationTag = exif.getTag(ExifInterface.TAG_ORIENTATION, ExifInterface.TAG_ORIENTATION);
-                short orientation =  (Short) orientationTag.getValue();
+                long orientation = 0;
+                ExifTag orientationTag = null;
+                try {
+                    exif.readExif( imageFile.getAbsolutePath() , ExifInterface.Options.OPTION_ALL );
+
+
+                    orientationTag = exif.getTag(ExifInterface.TAG_ORIENTATION);
+                    orientation = orientationTag.getValueAsLong(0);
+                }catch(Exception e){
+                    Log.e("ImageResizer", e.getLocalizedMessage());
+                }
                 Log.d("Exif",  exif.toString());
-                bmp = getResizedBitmap(bmp, sizes[0], sizes[1], orientation);
+                bmp = getResizedBitmap(bmp, sizes[0], sizes[1], (short)orientation);
 
                 if (params.getInt("storeImage") > 0) {
-                    storeImage(params, format, bmp, callbackContext);
+                    //James Kong 2017-01-27
+                    try{
+                        storeImageWithExif(params, format, bmp, exif, callbackContext);
+                    }catch(Exception e){
+                        storeImage(params, format, bmp, callbackContext);
+                    }
                 } else {
                     int quality = params.getInt("quality");
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
