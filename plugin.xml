@@ -43,7 +43,7 @@
 				<param name="android-package" value="com.synconset.ImageResizePlugin"/>
 			</feature>
 		</config-file>
-    <framework src="build.gradle" custom="true" type="gradleReference" />
+    <framework src="it.sephiroth.android.exif:library:+" />
 		<source-file src="src/Android/com/synconset/ImageResizer/ImageResizePlugin.java" target-dir="src/com/synconset" />
 	</platform>
 </plugin>

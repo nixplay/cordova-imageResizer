@@ -1,3 +1,0 @@
-dependencies {
-    compile 'it.sephiroth.android.exif:library:+'
-}
