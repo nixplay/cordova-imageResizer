@@ -21,6 +21,7 @@ import java.io.OutputStream;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.List;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -36,7 +37,9 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.DisplayMetrics;
 import android.net.Uri;
-import android.media.ExifInterface;
+
+import it.sephiroth.android.library.exif2.ExifInterface;
+import it.sephiroth.android.library.exif2.ExifTag;
 
 public class ImageResizePlugin extends CordovaPlugin {
     public static final String IMAGE_DATA_TYPE_BASE64 = "base64Image";
@@ -128,6 +131,19 @@ public class ImageResizePlugin extends CordovaPlugin {
             res.put("height", bmp.getHeight());
             callbackContext.success(res);
         }
+        //James Kong 2017-01-27
+        protected void storeImageWithExif(JSONObject params, String format, Bitmap bmp, ExifInterface exif, CallbackContext callbackContext) throws JSONException, IOException, URISyntaxException {
+            int quality = params.getInt("quality");
+            String filename = params.getString("filename");
+            String filePath = System.getProperty("java.io.tmpdir") + "/" + filename + ".jpg";
+            File file = new File(filePath);
+            exif.writeExif(bmp,filePath,quality);
+            JSONObject res = new JSONObject();
+            res.put("filePath", Uri.fromFile(file).toString());
+            res.put("width", bmp.getWidth());
+            res.put("height", bmp.getHeight());
+            callbackContext.success(res);
+        }
     }
 
     private class GetImageSize extends ImageTools implements Runnable {
@@ -209,12 +225,29 @@ public class ImageResizePlugin extends CordovaPlugin {
                 }
 
                 sizes = calculateFactors(params, options.outWidth, options.outHeight);
-                ExifInterface exif = new ExifInterface(imageFile.getAbsolutePath());
-                int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
-                bmp = getResizedBitmap(bmp, sizes[0], sizes[1], orientation);
+
+                ExifInterface exif = new ExifInterface();
+                long orientation = 0;
+                ExifTag orientationTag = null;
+                try {
+                    exif.readExif( imageFile.getAbsolutePath() , ExifInterface.Options.OPTION_ALL );
+
+
+                    orientationTag = exif.getTag(ExifInterface.TAG_ORIENTATION);
+                    orientation = orientationTag.getValueAsLong(0);
+                }catch(Exception e){
+                    Log.e("ImageResizer", e.getLocalizedMessage());
+                }
+                Log.d("Exif",  exif.toString());
+                bmp = getResizedBitmap(bmp, sizes[0], sizes[1], (short)orientation);
 
                 if (params.getInt("storeImage") > 0) {
-                    storeImage(params, format, bmp, callbackContext);
+                    //James Kong 2017-01-27
+                    try{
+                        storeImageWithExif(params, format, bmp, exif, callbackContext);
+                    }catch(Exception e){
+                        storeImage(params, format, bmp, callbackContext);
+                    }
                 } else {
                     int quality = params.getInt("quality");
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -244,18 +277,25 @@ public class ImageResizePlugin extends CordovaPlugin {
             }
         }
 
-        private Bitmap getResizedBitmap(Bitmap bm, float widthFactor, float heightFactor, int orientation) {
+        private Bitmap getResizedBitmap(Bitmap bm, float widthFactor, float heightFactor, short orientation) {
             int width = bm.getWidth();
             int height = bm.getHeight();
             int rotate = 0;
+
+            /**
+
+             * BOTTOM_LEFT 3 180
+             * RIGHT_TOP 6 90
+             * RIGHT_BOTTOM 8 270
+             */
             switch (orientation) {
-                case ExifInterface.ORIENTATION_ROTATE_270:
+                case ExifInterface.Orientation.RIGHT_BOTTOM:
                     rotate = 270;
                     break;
-                case ExifInterface.ORIENTATION_ROTATE_180:
+                case ExifInterface.Orientation.BOTTOM_LEFT:
                     rotate = 180;
                     break;
-                case ExifInterface.ORIENTATION_ROTATE_90:
+                case ExifInterface.Orientation.RIGHT_TOP:
                     rotate = 90;
                     break;
             }

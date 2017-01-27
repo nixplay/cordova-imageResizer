@@ -15,67 +15,84 @@
 #import "ImageResize.h"
 #import "UIImage+Scale.h"
 #import "NSData+Base64.h"
+#import <ImageIO/ImageIO.h>
 
 @implementation ImageResize
 
 @synthesize callbackID;
 
 - (void) resizeImage:(CDVInvokedUrlCommand*)command {
-    NSMutableDictionary *options = [command.arguments objectAtIndex:0];
-
-    CGFloat width = [[options objectForKey:@"width"] floatValue];
-    CGFloat height = [[options objectForKey:@"height"] floatValue];
-    NSInteger quality = [[options objectForKey:@"quality"] integerValue];
-    NSString *format =  [options objectForKey:@"format"];
-    bool storeImage = [[options objectForKey:@"storeImage"] boolValue];
-    NSString *filename = [options objectForKey:@"filename"];
     
-    NSString* docsPath = [NSTemporaryDirectory()stringByStandardizingPath];
-    
-    //Load the image
-    UIImage *img = [self getImageUsingOptions:options];
-    
-    CGSize targetSize = CGSizeMake(width, height);
-
-    UIImage* scaledImage = [self imageByScalingNotCroppingForSize:img toSize:targetSize];
-    
-//    scaledImage = [img scaleToSize:CGSizeMake(newWidth, newHeight)];
-    NSNumber *newWidthObj = [[NSNumber alloc] initWithFloat:scaledImage.size.width];
-    NSNumber *newHeightObj = [[NSNumber alloc] initWithFloat:scaledImage.size.height];
-
-    CDVPluginResult* pluginResult = nil;
-    if (storeImage) {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        NSMutableDictionary *options = [command.arguments objectAtIndex:0];
         
-        NSString* fullFilePath = [NSString stringWithFormat:@"%@/%@.%@", docsPath, filename, format];
-        [options setObject:fullFilePath forKey:@"fullFilePath"];
-        bool written = [self writeImage:scaledImage withOptions:options];
-        if (written) {
+        CGFloat width = [[options objectForKey:@"width"] floatValue];
+        CGFloat height = [[options objectForKey:@"height"] floatValue];
+        NSInteger quality = [[options objectForKey:@"quality"] integerValue];
+        NSString *format =  [options objectForKey:@"format"];
+        bool storeImage = [[options objectForKey:@"storeImage"] boolValue];
+        NSString *filename = [options objectForKey:@"filename"];
+        
+        NSString* docsPath = [NSTemporaryDirectory()stringByStandardizingPath];
+        
+        //Load the image
+        UIImage *img = [self getImageUsingOptions:options];
+        
+        NSString *imageData = [options objectForKey:@"data"];
+        NSString *imageDataType = [options objectForKey:@"imageDataType"];
+        NSMutableDictionary *metaDataDic = NULL;
+        if([imageDataType isEqualToString:@"base64Image"]==NO) {
+            NSDictionary* dic = [self getExifDataFromImageUrl:[NSURL URLWithString:imageData] ];
+            metaDataDic = (dic != NULL) ? [NSMutableDictionary dictionaryWithDictionary:dic] : NULL;
+            [metaDataDic setValue:[NSNumber numberWithInt:1] forKey:@"Orientation"];
+        }else{
+            NSLog(@"Warning meta data is only available with Camera Roll Image");
+        }
+        CGSize targetSize = CGSizeMake(width, height);
+        
+        UIImage* scaledImage = [self imageByScalingNotCroppingForSize:img toSize:targetSize];
+        
+        //    scaledImage = [img scaleToSize:CGSizeMake(newWidth, newHeight)];
+        NSNumber *newWidthObj = [[NSNumber alloc] initWithFloat:scaledImage.size.width];
+        NSNumber *newHeightObj = [[NSNumber alloc] initWithFloat:scaledImage.size.height];
+        
+        CDVPluginResult* pluginResult = nil;
+        if (storeImage) {
             
-            NSDictionary* result = [NSDictionary dictionaryWithObjects:[NSArray arrayWithObjects:[[NSURL fileURLWithPath:fullFilePath] absoluteString], newWidthObj, newHeightObj, nil] forKeys:[NSArray arrayWithObjects: @"filePath", @"width", @"height", nil]];
-//            NSDictionary* result = [NSDictionary dictionaryWithObjects:[NSArray arrayWithObjects:@"encodedString", newWidthObj, newHeightObj, nil] forKeys:[NSArray arrayWithObjects: @"imageData", @"width", @"height", nil]];
-            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:result];
+            NSString* fullFilePath = [NSString stringWithFormat:@"%@/%@.%@", docsPath, filename, format];
+            [options setObject:fullFilePath forKey:@"fullFilePath"];
+            if(metaDataDic != NULL){
+                [options setObject:metaDataDic forKey:@"meta"];
+            }
+            bool written = [self writeImage:scaledImage withOptions:options];
+            if (written) {
+                
+                NSDictionary* result = [NSDictionary dictionaryWithObjects:[NSArray arrayWithObjects:[[NSURL fileURLWithPath:fullFilePath] absoluteString], newWidthObj, newHeightObj, nil] forKeys:[NSArray arrayWithObjects: @"filePath", @"width", @"height", nil]];
+                //            NSDictionary* result = [NSDictionary dictionaryWithObjects:[NSArray arrayWithObjects:@"encodedString", newWidthObj, newHeightObj, nil] forKeys:[NSArray arrayWithObjects: @"imageData", @"width", @"height", nil]];
+                pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:result];
+            } else {
+                pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+            }
         } else {
-            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+            NSData* imageDataObject = nil;
+            if ([format isEqualToString:@"jpg"]) {
+                imageDataObject = (metaDataDic != NULL) ? [self writeMetadataIntoImageData:UIImageJPEGRepresentation(scaledImage, (quality/100.f)) metadata: [[NSMutableDictionary alloc] initWithDictionary: metaDataDic] ] : UIImageJPEGRepresentation(scaledImage, (quality/100.f));
+            } else {
+                imageDataObject = UIImagePNGRepresentation(scaledImage);
+            }
+            
+            NSString *encodedString = [imageDataObject base64EncodingWithLineLength:0];
+            NSDictionary* result = [NSDictionary dictionaryWithObjects:[NSArray arrayWithObjects:encodedString, newWidthObj, newHeightObj, nil] forKeys:[NSArray arrayWithObjects: @"imageData", @"width", @"height", nil]];
+            
+            if (encodedString != nil) {
+                pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:result];
+            } else {
+                pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+            }
         }
-    } else {
-        NSData* imageDataObject = nil;
-        if ([format isEqualToString:@"jpg"]) {
-            imageDataObject = UIImageJPEGRepresentation(scaledImage, (quality/100.f));
-        } else {
-            imageDataObject = UIImagePNGRepresentation(scaledImage);
-        }
-
-        NSString *encodedString = [imageDataObject base64EncodingWithLineLength:0];
-        NSDictionary* result = [NSDictionary dictionaryWithObjects:[NSArray arrayWithObjects:encodedString, newWidthObj, newHeightObj, nil] forKeys:[NSArray arrayWithObjects: @"imageData", @"width", @"height", nil]];
-
-        if (encodedString != nil) {
-            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:result];
-        } else {
-            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
-        }
-    }
-
-    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+        
+        [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+    });
 }
 
 
@@ -123,29 +140,52 @@
 }
 
 - (UIImage*) getImageUsingOptions:(NSDictionary*)options {
+    return [[UIImage alloc ]initWithData:[self getImageDataUsingOption:options]];
+}
+
+-(NSData*) getImageDataUsingOption:(NSDictionary*)options {
     NSString *imageData = [options objectForKey:@"data"];
     NSString *imageDataType = [options objectForKey:@"imageDataType"];
-
-    //Load the image
-    UIImage *img = nil;
+    
     if([imageDataType isEqualToString:@"base64Image"]==YES) {
-        img = [[UIImage alloc] initWithData:[NSData dataWithBase64EncodedString:imageData]];
+        return [NSData dataWithBase64EncodedString:imageData];
     } else {
-        img = [[UIImage alloc] initWithData:[NSData dataWithContentsOfURL:[NSURL URLWithString:imageData]]];
+        return [NSData dataWithContentsOfURL:[NSURL URLWithString:imageData]];
     }
-    return img;
+    return nil;
+}
+
+
+-(NSDictionary*)getExifDataFromImageUrl:(NSURL*) imageUrl
+{
+    CGImageSourceRef imageSource = CGImageSourceCreateWithURL((CFURLRef)imageUrl, nil);
+    if (imageSource != NULL)
+    {
+        NSDictionary *metaoptions = @{(NSString *)kCGImageSourceShouldCache : [NSNumber numberWithBool:NO]};
+        
+        CFDictionaryRef imageProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, (__bridge CFDictionaryRef)metaoptions);
+        NSDictionary *myMetadata = [NSDictionary dictionaryWithDictionary:(__bridge NSDictionary *)imageProperties];
+        
+        CFRelease(imageProperties);
+        CFRelease(imageSource);
+        
+        return myMetadata;
+        
+    }
+    return NULL;
+    
 }
 
 - (void) imageSize:(CDVInvokedUrlCommand*)command {
     NSDictionary *options = [command.arguments objectAtIndex:0];
-
+    
     UIImage * img = [self getImageUsingOptions:options];
     NSNumber *width = [[NSNumber alloc] initWithInt:img.size.width];
     NSNumber *height = [[NSNumber alloc] initWithInt:img.size.height];
     NSDictionary* dic = [NSDictionary dictionaryWithObjects:[NSArray arrayWithObjects:width,height,nil] forKeys:[NSArray arrayWithObjects: @"width", @"height", nil]];
-
+    
     CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:dic];
-
+    
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 }
 
@@ -153,7 +193,9 @@
 - (BOOL) writeImage:(UIImage *)img withOptions:(NSDictionary *) options {
     NSString *fullFilePath =  [options objectForKey:@"fullFilePath"];
     NSInteger quality = [[options objectForKey:@"quality"] integerValue];
-    NSData *data = UIImageJPEGRepresentation(img, quality/100.0f);
+    NSDictionary *meta = [options objectForKey:@"meta"] ;
+    
+    NSData *data = (meta != NULL)? [self writeMetadataIntoImageData:UIImageJPEGRepresentation(img, quality/100.0f) metadata: [[NSMutableDictionary alloc]initWithDictionary:meta]] : UIImageJPEGRepresentation(img, quality/100.0f) ;
     NSError* err = nil;
     if (![data writeToFile:fullFilePath options:NSAtomicWrite error:&err]) {
         return NO;
@@ -161,6 +203,32 @@
         return YES;
     }
     
+}
+
+//http://stackoverflow.com/questions/9006759/how-to-write-exif-metadata-to-an-image-not-the-camera-roll-just-a-uiimage-or-j
+-(NSData *)writeMetadataIntoImageData:(NSData *)imageData metadata:(NSMutableDictionary *)metadata {
+    // create an imagesourceref
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef) imageData, NULL);
+    
+    // this is the type of image (e.g., public.jpeg)
+    CFStringRef UTI = CGImageSourceGetType(source);
+    
+    // create a new data object and write the new image into it
+    NSMutableData *dest_data = [NSMutableData data];
+    CGImageDestinationRef destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)dest_data, UTI, 1, NULL);
+    if (!destination) {
+        NSLog(@"Error: Could not create image destination");
+    }
+    // add the image contained in the image source to the destination, overidding the old metadata with our modified metadata
+    CGImageDestinationAddImageFromSource(destination, source, 0, (__bridge CFDictionaryRef) metadata);
+    BOOL success = NO;
+    success = CGImageDestinationFinalize(destination);
+    if (!success) {
+        NSLog(@"Error: Could not create data from image destination");
+    }
+    CFRelease(destination);
+    CFRelease(source);
+    return dest_data;
 }
 
 - (void) storeImage:(CDVInvokedUrlCommand*)command {
@@ -185,10 +253,10 @@
         } else {
             imageDataObject = UIImagePNGRepresentation(img);
         }
-
+        
         NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
         NSString *documentsDirectory = [paths objectAtIndex:0];
-
+        
         NSMutableString* fullFileName;
         if (![directory isEqualToString:@""]) {
             fullFileName = [NSMutableString stringWithString: directory];
@@ -199,7 +267,7 @@
         } else {
             fullFileName = [NSMutableString stringWithString: documentsDirectory];
         }
-
+        
         [fullFileName appendString:@"/"];
         [fullFileName appendString:filename];
         NSRange r = [filename rangeOfString:format options:NSCaseInsensitiveSearch];
@@ -210,7 +278,7 @@
         NSError *error = nil;
         bool written = [imageDataObject writeToFile:fullFileName options:NSDataWritingAtomic error:&error];
         if (!written) {
-              NSLog(@"Write returned error: %@", [error localizedDescription]);
+            NSLog(@"Write returned error: %@", [error localizedDescription]);
         }
         return written;
     }
