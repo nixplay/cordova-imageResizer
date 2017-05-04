@@ -239,7 +239,7 @@ public class ImageResizePlugin extends CordovaPlugin {
                     Log.e("ImageResizer", e.getLocalizedMessage());
                 }
                 Log.d("Exif",  exif.toString());
-                bmp = getResizedBitmap(bmp, sizes[0], sizes[1], (short)orientation);
+                bmp = getResizedBitmap(bmp, sizes[0], sizes[1], 1);
 
                 if (params.getInt("storeImage") > 0) {
                     //James Kong 2017-01-27
