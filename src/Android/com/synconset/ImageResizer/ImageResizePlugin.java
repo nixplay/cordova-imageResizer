@@ -12,16 +12,12 @@
  */
 package com.synconset;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.util.List;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.net.Uri;
+import android.util.Base64;
+import android.util.Log;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -29,14 +25,13 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Matrix;
-import android.os.Environment;
-import android.util.Base64;
-import android.util.Log;
-import android.util.DisplayMetrics;
-import android.net.Uri;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
 
 import it.sephiroth.android.library.exif2.ExifInterface;
 import it.sephiroth.android.library.exif2.ExifTag;
@@ -235,12 +230,17 @@ public class ImageResizePlugin extends CordovaPlugin {
 
                     orientationTag = exif.getTag(ExifInterface.TAG_ORIENTATION);
                     orientation = orientationTag.getValueAsLong(0);
+
                 }catch(Exception e){
                     Log.e("ImageResizer", e.getLocalizedMessage());
                 }
                 Log.d("Exif",  exif.toString());
-                bmp = getResizedBitmap(bmp, sizes[0], sizes[1], 1);
-
+                bmp = getResizedBitmap(bmp, sizes[0], sizes[1], (short)orientation);
+                try {
+                    exif.setTagValue(ExifInterface.TAG_ORIENTATION,1);
+                }catch(Exception e){
+                    Log.e("ImageResizer", e.getLocalizedMessage());
+                }
                 if (params.getInt("storeImage") > 0) {
                     //James Kong 2017-01-27
                     try{
