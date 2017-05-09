@@ -232,14 +232,14 @@ public class ImageResizePlugin extends CordovaPlugin {
                     orientation = orientationTag.getValueAsLong(0);
 
                 }catch(Exception e){
-                    Log.e("ImageResizer", e.getLocalizedMessage());
+                    Log.e("ImageResizer", "exif.readExif( "+imageFile.getAbsolutePath()+" , ExifInterface.Options.OPTION_ALL )");
                 }
                 Log.d("Exif",  exif.toString());
                 bmp = getResizedBitmap(bmp, sizes[0], sizes[1], (short)orientation);
                 try {
                     exif.setTagValue(ExifInterface.TAG_ORIENTATION,1);
                 }catch(Exception e){
-                    Log.e("ImageResizer", e.getLocalizedMessage());
+                    Log.e("ImageResizer", "exif.setTagValue(ExifInterface.TAG_ORIENTATION,1)");
                 }
                 if (params.getInt("storeImage") > 0) {
                     //James Kong 2017-01-27
