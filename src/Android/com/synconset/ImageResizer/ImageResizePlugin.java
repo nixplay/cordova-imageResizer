@@ -230,7 +230,7 @@ public class ImageResizePlugin extends CordovaPlugin {
 
                     orientationTag = exif.getTag(ExifInterface.TAG_ORIENTATION);
                     orientation = orientationTag.getValueAsLong(0);
-                    throw new NullPointerException();
+                    
                 }catch(Exception e){
                     Log.e("ImageResizer", "exif.readExif( "+imageFile.getAbsolutePath()+" , ExifInterface.Options.OPTION_ALL )");
                 }
@@ -238,7 +238,7 @@ public class ImageResizePlugin extends CordovaPlugin {
                 bmp = getResizedBitmap(bmp, sizes[0], sizes[1], (short)orientation);
                 try {
                     exif.setTagValue(ExifInterface.TAG_ORIENTATION,1);
-                    throw new NullPointerException();
+                    
                 }catch(Exception e){
                     Log.e("ImageResizer", "exif.setTagValue(ExifInterface.TAG_ORIENTATION,1)");
                 }
