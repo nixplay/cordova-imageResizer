@@ -151,6 +151,7 @@ public class ImageResizePlugin extends CordovaPlugin {
             try {
                 BitmapFactory.Options options = new BitmapFactory.Options();
                 options.inJustDecodeBounds = true;
+                options.inPreferredConfig = Bitmap.Config.RGB_565;
                 Bitmap bmp = getBitmap(imageData, imageDataType, options);
                 JSONObject res = new JSONObject();
                 res.put("width", options.outWidth);
@@ -206,7 +207,6 @@ public class ImageResizePlugin extends CordovaPlugin {
                 options.inJustDecodeBounds = true;
                 URI uri = new URI(imageData);
                 File imageFile = new File(uri);
-                getBitmap(imageData, imageDataType, options);
                 float[] sizes = calculateFactors(params, options.outWidth, options.outHeight);
                 float reqWidth = options.outWidth * sizes[0];
                 float reqHeight = options.outHeight * sizes[1];
@@ -230,7 +230,7 @@ public class ImageResizePlugin extends CordovaPlugin {
 
                     orientationTag = exif.getTag(ExifInterface.TAG_ORIENTATION);
                     orientation = orientationTag.getValueAsLong(0);
-
+                    throw new NullPointerException();
                 }catch(Exception e){
                     Log.e("ImageResizer", "exif.readExif( "+imageFile.getAbsolutePath()+" , ExifInterface.Options.OPTION_ALL )");
                 }
@@ -238,6 +238,7 @@ public class ImageResizePlugin extends CordovaPlugin {
                 bmp = getResizedBitmap(bmp, sizes[0], sizes[1], (short)orientation);
                 try {
                     exif.setTagValue(ExifInterface.TAG_ORIENTATION,1);
+                    throw new NullPointerException();
                 }catch(Exception e){
                     Log.e("ImageResizer", "exif.setTagValue(ExifInterface.TAG_ORIENTATION,1)");
                 }
