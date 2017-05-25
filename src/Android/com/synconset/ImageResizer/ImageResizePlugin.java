@@ -228,7 +228,6 @@ public class ImageResizePlugin extends CordovaPlugin {
                 } catch (BitmapUtil.UnableToDecodeBitmapException e) {
                     e.printStackTrace();
                 }
-//                Bitmap bmp = getBitmap(imageData, imageDataType, options);
                 if (bmp == null) {
                     throw new IOException("The image file could not be opened.");
                 }
