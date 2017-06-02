@@ -24,6 +24,17 @@ import android.net.Uri;
 import android.util.Base64;
 import android.util.Log;
 
+import com.facebook.common.executors.CallerThreadExecutor;
+import com.facebook.common.references.CloseableReference;
+import com.facebook.datasource.DataSource;
+import com.facebook.drawee.backends.pipeline.Fresco;
+import com.facebook.imagepipeline.common.ResizeOptions;
+import com.facebook.imagepipeline.core.ImagePipeline;
+import com.facebook.imagepipeline.datasource.BaseBitmapDataSubscriber;
+import com.facebook.imagepipeline.image.CloseableImage;
+import com.facebook.imagepipeline.request.ImageRequest;
+import com.facebook.imagepipeline.request.ImageRequestBuilder;
+
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
 import org.json.JSONArray;
@@ -59,6 +70,10 @@ public class ImageResizePlugin extends CordovaPlugin {
 
     @Override
     public boolean execute(String action, JSONArray data, CallbackContext callbackContext) throws JSONException {
+        if (!Fresco.hasBeenInitialized()) {
+            Context context = this.cordova.getActivity().getApplicationContext();
+            Fresco.initialize(context);
+        }
         JSONObject params = data.getJSONObject(0);
         if (action.equals("resizeImage")) {
             ResizeImage resizeImage = new ResizeImage(params, callbackContext);
@@ -211,83 +226,100 @@ public class ImageResizePlugin extends CordovaPlugin {
         @Override
         public void run() {
             try {
-                URI uri = new URI(imageData);
-                File imageFile = new File(uri);
-                BitmapFactory.Options options = new BitmapFactory.Options();
+                URI uri_ = new URI(imageData);
+                Uri uri = Uri.parse(imageData);
+
+                final File imageFile = new File(uri_);
+                final BitmapFactory.Options options = new BitmapFactory.Options();
                 options.inJustDecodeBounds = true;
                 BitmapFactory.decodeFile(imageFile.getAbsolutePath(), options);
 
                 float[] sizes = calculateFactors(params, options.outWidth, options.outHeight);
                 float reqWidth = options.outWidth * sizes[0];
                 float reqHeight = options.outHeight * sizes[1];
-                int inSampleSize = calculateInSampleSize(options, (int) reqWidth, (int) reqHeight);
-                options.inSampleSize = inSampleSize;
-                Bitmap bmp = null;
-                try {
-                    bmp = BitmapUtil.decodeLargeBitmap(cordova.getActivity().getBaseContext(), imageFile, (int) reqWidth, (int) reqHeight, inSampleSize);
-                } catch (BitmapUtil.UnableToDecodeBitmapException e) {
-                    e.printStackTrace();
-                }
-                if (bmp == null) {
-                    throw new IOException("The image file could not be opened.");
-                }
+//                float desiredWidth = (float) params.getDouble("width");
+//                float desiredHeight = (float) params.getDouble("height");
 
-                sizes = calculateFactors(params, options.outWidth, options.outHeight);
+                ImageRequest request = ImageRequestBuilder.newBuilderWithSource(uri)
+                        .setResizeOptions(new ResizeOptions((int) reqWidth, (int) reqHeight))
+                        .build();
+                ImagePipeline imagePipeline = Fresco.getImagePipeline();
+                final DataSource<CloseableReference<CloseableImage>> dataSource = imagePipeline.fetchDecodedImage(request, this);
 
-                ExifInterface exif = new ExifInterface();
-                long orientation = 0;
-                ExifTag orientationTag = null;
-                try {
-                    exif.readExif(imageFile.getAbsolutePath(), ExifInterface.Options.OPTION_ALL);
+                CallerThreadExecutor executor = CallerThreadExecutor.getInstance();
+                dataSource.subscribe(
+                        new BaseBitmapDataSubscriber() {
+                            @Override
+                            protected void onFailureImpl(DataSource<CloseableReference<CloseableImage>> dataSource) {
+                                callbackContext.error("Failed to resize image!");
+                            }
+
+                            @Override
+                            protected void onNewResultImpl(Bitmap bmp) {
+                                ExifInterface exif = new ExifInterface();
+                                long orientation = 0;
+                                ExifTag orientationTag = null;
+                                try {
+                                    exif.readExif(imageFile.getAbsolutePath(), ExifInterface.Options.OPTION_ALL);
 
 
-                    orientationTag = exif.getTag(ExifInterface.TAG_ORIENTATION);
-                    orientation = orientationTag.getValueAsLong(0);
+                                    orientationTag = exif.getTag(ExifInterface.TAG_ORIENTATION);
+                                    orientation = orientationTag.getValueAsLong(0);
 
-                } catch (Exception e) {
-                    Log.e("ImageResizer", "exif.readExif( " + imageFile.getAbsolutePath() + " , ExifInterface.Options.OPTION_ALL )");
-                }
-                Log.d("Exif", exif.toString());
-                //bmp = getResizedBitmap(bmp, sizes[0], sizes[1], (short) orientation);
-                try {
-                    exif.setTagValue(ExifInterface.TAG_ORIENTATION, 1);
+                                } catch (Exception e) {
+                                    Log.e("ImageResizer", "exif.readExif( " + imageFile.getAbsolutePath() + " , ExifInterface.Options.OPTION_ALL )");
+                                }
+                                Log.d("Exif", exif.toString());
+                                try {
+                                    exif.setTagValue(ExifInterface.TAG_ORIENTATION, 1);
 
-                } catch (Exception e) {
-                    Log.e("ImageResizer", "exif.setTagValue(ExifInterface.TAG_ORIENTATION,1)");
-                }
-                if (params.getInt("storeImage") > 0) {
-                    //James Kong 2017-01-27
-                    try {
-                        storeImageWithExif(params, format, bmp, exif, callbackContext);
-                    } catch (Exception e) {
-                        storeImage(params, format, bmp, callbackContext);
-                    }
-                } else {
-                    int quality = params.getInt("quality");
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    if (format.equals(FORMAT_PNG)) {
-                        bmp.compress(Bitmap.CompressFormat.PNG, quality, baos);
-                    } else {
-                        bmp.compress(Bitmap.CompressFormat.JPEG, quality, baos);
-                    }
-                    byte[] b = baos.toByteArray();
-                    String returnString = Base64.encodeToString(b, Base64.NO_WRAP);
-                    // return object
-                    JSONObject res = new JSONObject();
-                    res.put("imageData", returnString);
-                    res.put("width", bmp.getWidth());
-                    res.put("height", bmp.getHeight());
-                    callbackContext.success(res);
-                }
+                                } catch (Exception e) {
+                                    Log.e("ImageResizer", "exif.setTagValue(ExifInterface.TAG_ORIENTATION,1)");
+                                }
+                                try {
+                                    if (params.getInt("storeImage") > 0) {
+                                        //James Kong 2017-01-27
+                                        try {
+                                            storeImageWithExif(params, format, bmp, exif, callbackContext);
+                                        } catch (Exception e) {
+                                            storeImage(params, format, bmp, callbackContext);
+                                        }
+                                    } else {
+                                        int quality = params.getInt("quality");
+                                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                                        if (format.equals(FORMAT_PNG)) {
+                                            bmp.compress(Bitmap.CompressFormat.PNG, quality, baos);
+                                        } else {
+                                            bmp.compress(Bitmap.CompressFormat.JPEG, quality, baos);
+                                        }
+                                        byte[] b = baos.toByteArray();
+                                        String returnString = Base64.encodeToString(b, Base64.NO_WRAP);
+                                        // return object
+                                        JSONObject res = new JSONObject();
+                                        res.put("imageData", returnString);
+                                        res.put("width", bmp.getWidth());
+                                        res.put("height", bmp.getHeight());
+                                        callbackContext.success(res);
+                                    }
+                                } catch (JSONException e) {
+                                    Log.d("PLUGIN", e.getMessage());
+                                    callbackContext.error(e.getMessage());
+                                } catch (IOException e) {
+                                    Log.d("PLUGIN", e.getMessage());
+                                    callbackContext.error(e.getMessage());
+                                } catch (URISyntaxException e) {
+                                    Log.d("PLUGIN", e.getMessage());
+                                    callbackContext.error(e.getMessage());
+                                }
+                            }
+                        }
+                        , executor);
+
             } catch (JSONException e) {
                 Log.d("PLUGIN", e.getMessage());
                 callbackContext.error(e.getMessage());
-            } catch (IOException e) {
-                Log.d("PLUGIN", e.getMessage());
-                callbackContext.error(e.getMessage());
             } catch (URISyntaxException e) {
-                Log.d("PLUGIN", e.getMessage());
-                callbackContext.error(e.getMessage());
+                e.printStackTrace();
             }
         }
 
@@ -679,4 +711,7 @@ class BitmapUtil {
         BitmapFactory.decodeFile(file, options);
         return options;
     }
+
+
+
 }
