@@ -43,7 +43,9 @@
 				<param name="android-package" value="com.synconset.ImageResizePlugin"/>
 			</feature>
 		</config-file>
-    <framework src="it.sephiroth.android.exif:library:+" />
+    	<framework src="it.sephiroth.android.exif:library:+" />
+    	<framework src="com.facebook.fresco:fresco:1.2.0"/>
+    	<framework src="jp.wasabeef:fresco-processors:2.0.0"/>
 		<source-file src="src/Android/com/synconset/ImageResizer/ImageResizePlugin.java" target-dir="src/com/synconset" />
 	</platform>
 </plugin>
